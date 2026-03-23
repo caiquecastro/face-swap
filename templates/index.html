@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Face Swap</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <main class="page">
+      <section class="hero">
+        <p class="eyebrow">FastAPI + InsightFace</p>
+        <h1>Generate face swaps from the browser.</h1>
+        <p class="intro">
+          Upload one source face and one target image. The app will use the first
+          detected face from the source and replace every detected face in the target.
+        </p>
+      </section>
+
+      <section class="panel">
+        <form action="/swap" method="post" enctype="multipart/form-data" class="swap-form">
+          <label class="field">
+            <span>Source face image</span>
+            <input type="file" name="source_image" accept="image/*" required />
+          </label>
+
+          <label class="field">
+            <span>Target image</span>
+            <input type="file" name="target_image" accept="image/*" required />
+          </label>
+
+          <button type="submit">Create image</button>
+        </form>
+
+        {% if error %}
+        <p class="message error">{{ error }}</p>
+        {% endif %}
+      </section>
+
+      {% if result_url %}
+      <section class="panel result">
+        <div class="result-header">
+          <h2>Result</h2>
+          <a href="{{ result_url }}" download="face-swap-result.jpg">Download image</a>
+        </div>
+        <img src="{{ result_url }}" alt="Generated face swap result" />
+      </section>
+      {% endif %}
+    </main>
+  </body>
+</html>

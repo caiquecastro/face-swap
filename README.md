@@ -1,86 +1,73 @@
-# Face Swap
+# Face Swap Web App
 
-Small Python script for swapping a source face into a target image using `insightface` and the `inswapper_128.onnx` model.
+FastAPI web app for creating face-swapped images with `insightface` and the `inswapper_128.onnx` model.
 
-## What It Uses
+## Stack
 
-- `insightface` for face detection, face analysis, and swap model loading
-- `opencv-python` (`cv2`) for image input/output and preview
-- `inswapper_128.onnx` as the pretrained face swap model
+- `FastAPI` for the web server and upload endpoints
+- `Jinja2` for server-rendered HTML
+- `insightface` for face analysis and face swapping
+- `opencv-python` and `numpy` for image decoding and encoding
+- `onnxruntime` for running the pretrained model
 
-## How It Works
+## What The App Does
 
-1. Detect the face in the source image.
-2. Detect all faces in the target image.
-3. Replace each target face with the source face.
-4. Save the result as `swapped_output.jpg`.
+1. Upload a source face image.
+2. Upload a target image.
+3. Detect the first face in the source image.
+4. Detect all faces in the target image.
+5. Replace each target face with the source face.
+6. Save the generated image and show it in the browser.
 
-The current script reads:
+## Project Structure
 
-- `face.jpg` as the source face
-- `body.jpg` as the target image
-
-## Project Files
-
-- [`app.py`](/app.py) main script
-- [`inswapper_128.onnx`](/inswapper_128.onnx) swap model
-- image files in the project root used as sample inputs
+- [`app.py`](/Users/caique.silva/Code/Personal/face-swap/app.py) FastAPI app and face swap service
+- [`templates/index.html`](/Users/caique.silva/Code/Personal/face-swap/templates/index.html) upload form and result page
+- [`static/style.css`](/Users/caique.silva/Code/Personal/face-swap/static/style.css) web UI styles
+- [`requirements.txt`](/Users/caique.silva/Code/Personal/face-swap/requirements.txt) Python dependencies
+- [`inswapper_128.onnx`](/Users/caique.silva/Code/Personal/face-swap/inswapper_128.onnx) pretrained swap model
 
 ## Setup
-
-Create a virtual environment and install the Python dependencies:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install insightface opencv-python onnxruntime
+pip install -r requirements.txt
 ```
-
-If you want GPU inference, you may need a GPU-enabled runtime depending on your environment.
 
 ## Run
 
 ```bash
-python3 app.py
+uvicorn app:app --reload
 ```
 
-The script will:
+Open `http://127.0.0.1:8000`.
 
-- load the source and target images
-- run face detection
-- perform the swap
-- write `swapped_output.jpg`
-- open a preview window with the result
+## Runtime Notes
 
-## GPU / CPU Note
+The app defaults to CPU execution:
 
-The script currently uses:
-
-```python
-app.prepare(ctx_id=0, det_size=(640, 640))
+```bash
+FACE_SWAP_CTX_ID=-1 uvicorn app:app --reload
 ```
 
-`ctx_id=0` assumes a GPU-capable runtime/device is available. If you want to try CPU execution, change it to:
+If your environment is configured for GPU inference, set:
 
-```python
-app.prepare(ctx_id=-1, det_size=(640, 640))
+```bash
+FACE_SWAP_CTX_ID=0 uvicorn app:app --reload
 ```
 
-## Changing Inputs
+## Output
 
-Edit the filenames in [`app.py`](/app.py) here:
+- Generated files are written to `static/generated/`
+- The browser page shows the generated image and a download link
 
-- `img1 = cv2.imread("face.jpg")`
-- `img2 = cv2.imread("body.jpg")`
+## Validation Behavior
 
-You can point them to any source and target images you want to test.
-
-## Notes
-
-- The script uses the first detected face from the source image.
-- It swaps all detected faces in the target image.
-- Results depend heavily on image quality, pose, lighting, and occlusion.
+- If no face is detected in the source image, the app returns a form error
+- If no face is detected in the target image, the app returns a form error
+- The source image uses the first detected face only
 
 ## Responsible Use
 
-Face swapping can be deceptive or harmful if used without consent. Use this project only for lawful, ethical, and clearly disclosed purposes.
+Face swapping can mislead people or violate consent. Use this project only for lawful, ethical, and clearly disclosed purposes.

@@ -1,31 +1,121 @@
+from __future__ import annotations
+
+import os
+import uuid
+from pathlib import Path
+
 import cv2
 import insightface
+import numpy as np
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi.responses import RedirectResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 from insightface.app import FaceAnalysis
 
-# 1. Initialize Face Analysis (detects faces, landmarks, etc.)
-app = FaceAnalysis(name='buffalo_l')
-app.prepare(ctx_id=0, det_size=(640, 640))
 
-# 2. Load the Face Swapper model
-# Make sure 'inswapper_128.onnx' is in the same directory
-swapper = insightface.model_zoo.get_model('inswapper_128.onnx', download=False)
+BASE_DIR = Path(__file__).resolve().parent
+MODEL_PATH = BASE_DIR / "inswapper_128.onnx"
+STATIC_DIR = BASE_DIR / "static"
+TEMPLATES_DIR = BASE_DIR / "templates"
+GENERATED_DIR = STATIC_DIR / "generated"
 
-# 3. Load your images
-img1 = cv2.imread("face.jpg") # The face you WANT
-img2 = cv2.imread("body.jpg") # The photo you are CHANGING
 
-# 4. Detect faces in both images
-face1 = app.get(img1)[0] # Get the first face found in source
-faces_target = app.get(img2) # Get all faces in target
+class FaceSwapService:
+    def __init__(self) -> None:
+        self.face_app = FaceAnalysis(name="buffalo_l")
+        self.face_app.prepare(ctx_id=self._context_id(), det_size=(640, 640))
+        self.swapper = insightface.model_zoo.get_model(str(MODEL_PATH), download=False)
 
-# 5. Perform the swap
-# This loop swaps every face found in the target image with the source face
-res = img2.copy()
-for face in faces_target:
-    res = swapper.get(res, face, face1, paste_back=True)
+    @staticmethod
+    def _context_id() -> int:
+        return int(os.getenv("FACE_SWAP_CTX_ID", "-1"))
 
-# 6. Save and show the result
-cv2.imwrite("swapped_output.jpg", res)
-cv2.imshow("Result", res)
-cv2.waitKey(0)
-cv2.destroyAllWindows()
+    def swap_faces(self, source_bytes: bytes, target_bytes: bytes) -> bytes:
+        source_image = decode_image(source_bytes)
+        target_image = decode_image(target_bytes)
+
+        source_faces = self.face_app.get(source_image)
+        if not source_faces:
+            raise ValueError("No face detected in the source image.")
+
+        target_faces = self.face_app.get(target_image)
+        if not target_faces:
+            raise ValueError("No face detected in the target image.")
+
+        result = target_image.copy()
+        source_face = source_faces[0]
+
+        for target_face in target_faces:
+            result = self.swapper.get(result, target_face, source_face, paste_back=True)
+
+        success, encoded = cv2.imencode(".jpg", result)
+        if not success:
+            raise ValueError("Failed to encode the swapped image.")
+
+        return encoded.tobytes()
+
+
+def decode_image(image_bytes: bytes) -> np.ndarray:
+    image_array = np.frombuffer(image_bytes, dtype=np.uint8)
+    image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
+    if image is None:
+        raise ValueError("Uploaded file is not a valid image.")
+    return image
+
+
+def save_result_image(image_bytes: bytes) -> str:
+    GENERATED_DIR.mkdir(parents=True, exist_ok=True)
+    filename = f"{uuid.uuid4().hex}.jpg"
+    output_path = GENERATED_DIR / filename
+    output_path.write_bytes(image_bytes)
+    return f"/static/generated/{filename}"
+
+
+app = FastAPI(title="Face Swap")
+app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
+templates = Jinja2Templates(directory=str(TEMPLATES_DIR))
+face_swap_service = FaceSwapService()
+
+
+@app.get("/")
+async def index(request: Request) -> object:
+    return templates.TemplateResponse(
+        request,
+        "index.html",
+        {"request": request, "result_url": None, "error": None},
+    )
+
+
+@app.post("/swap")
+async def swap(request: Request, source_image: UploadFile = File(...), target_image: UploadFile = File(...)) -> object:
+    source_bytes = await source_image.read()
+    target_bytes = await target_image.read()
+
+    try:
+        swapped_bytes = face_swap_service.swap_faces(source_bytes, target_bytes)
+        result_url = save_result_image(swapped_bytes)
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"request": request, "result_url": result_url, "error": None},
+        )
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"request": request, "result_url": None, "error": str(exc)},
+            status_code=400,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail="Face swap failed.") from exc
+
+
+@app.get("/health")
+async def healthcheck() -> dict[str, str]:
+    return {"status": "ok"}
+
+
+@app.get("/favicon.ico")
+async def favicon() -> RedirectResponse:
+    return RedirectResponse(url="/")
