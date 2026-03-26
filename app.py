@@ -15,7 +15,7 @@ from insightface.app import FaceAnalysis
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "inswapper_128.onnx"
+MODEL_PATH = BASE_DIR / "models" / "inswapper_128.onnx"
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 GENERATED_DIR = STATIC_DIR / "generated"

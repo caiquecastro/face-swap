@@ -1,2 +1,6 @@
 .venv
 __pycache__
+/static/generated/*.jpg
+/assets
+/models/*.onnx
+.DS_Store

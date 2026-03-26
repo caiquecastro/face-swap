@@ -27,14 +27,22 @@ FastAPI web app for creating face-swapped images with `insightface` and the `ins
 
 - [`app.py`](/Users/caique.silva/Code/Personal/face-swap/app.py) FastAPI app and face swap service
 - [`templates/index.html`](/Users/caique.silva/Code/Personal/face-swap/templates/index.html) upload form and result page
-- [`static/style.css`](/Users/caique.silva/Code/Personal/face-swap/static/style.css) web UI styles
 - [`pyproject.toml`](/Users/caique.silva/Code/Personal/face-swap/pyproject.toml) Python dependencies
-- [`inswapper_128.onnx`](/Users/caique.silva/Code/Personal/face-swap/inswapper_128.onnx) pretrained swap model
+- `models/inswapper_128.onnx` pretrained swap model (not tracked in git)
 
 ## Setup
 
+Install dependencies:
+
 ```bash
 uv sync
+```
+
+Download the `inswapper_128.onnx` model (see [InsightFace in_swapper example](https://github.com/deepinsight/insightface/tree/master/examples/in_swapper) for reference) and place it in the `models/` directory:
+
+```
+models/
+  inswapper_128.onnx
 ```
 
 ## Run
