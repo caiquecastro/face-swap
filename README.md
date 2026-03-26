@@ -2,6 +2,10 @@
 
 FastAPI web app for creating face-swapped images with `insightface` and the `inswapper_128.onnx` model.
 
+## Screenshot
+
+![Face Swap App](screenshot.png)
+
 ## Stack
 
 - `FastAPI` for the web server and upload endpoints
