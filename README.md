@@ -24,21 +24,19 @@ FastAPI web app for creating face-swapped images with `insightface` and the `ins
 - [`app.py`](/Users/caique.silva/Code/Personal/face-swap/app.py) FastAPI app and face swap service
 - [`templates/index.html`](/Users/caique.silva/Code/Personal/face-swap/templates/index.html) upload form and result page
 - [`static/style.css`](/Users/caique.silva/Code/Personal/face-swap/static/style.css) web UI styles
-- [`requirements.txt`](/Users/caique.silva/Code/Personal/face-swap/requirements.txt) Python dependencies
+- [`pyproject.toml`](/Users/caique.silva/Code/Personal/face-swap/pyproject.toml) Python dependencies
 - [`inswapper_128.onnx`](/Users/caique.silva/Code/Personal/face-swap/inswapper_128.onnx) pretrained swap model
 
 ## Setup
 
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+uv sync
 ```
 
 ## Run
 
 ```bash
-uvicorn app:app --reload
+uv run uvicorn app:app --reload
 ```
 
 Open `http://127.0.0.1:8000`.
@@ -48,13 +46,13 @@ Open `http://127.0.0.1:8000`.
 The app defaults to CPU execution:
 
 ```bash
-FACE_SWAP_CTX_ID=-1 uvicorn app:app --reload
+FACE_SWAP_CTX_ID=-1 uv run uvicorn app:app --reload
 ```
 
 If your environment is configured for GPU inference, set:
 
 ```bash
-FACE_SWAP_CTX_ID=0 uvicorn app:app --reload
+FACE_SWAP_CTX_ID=0 uv run uvicorn app:app --reload
 ```
 
 ## Output
