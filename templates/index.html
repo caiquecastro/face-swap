@@ -4,48 +4,243 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Face Swap</title>
-    <link rel="stylesheet" href="/static/style.css" />
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,500;0,9..40,700;1,9..40,400&display=swap" rel="stylesheet" />
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              display: ['"Instrument Serif"', 'Georgia', 'serif'],
+              body: ['"DM Sans"', 'system-ui', 'sans-serif'],
+            },
+            colors: {
+              surface: {
+                DEFAULT: '#0c0a09',
+                raised: 'rgba(255,255,255,0.04)',
+                hover: 'rgba(255,255,255,0.07)',
+              },
+              ember: {
+                DEFAULT: '#e85d30',
+                light: '#ff7a50',
+                dark: '#c4401a',
+                glow: 'rgba(232,93,48,0.15)',
+              },
+            },
+            animation: {
+              'fade-up': 'fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) forwards',
+              'fade-up-delay': 'fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.12s forwards',
+              'fade-up-delay-2': 'fadeUp 0.7s cubic-bezier(0.16,1,0.3,1) 0.24s forwards',
+              'scale-in': 'scaleIn 0.5s cubic-bezier(0.16,1,0.3,1) 0.15s forwards',
+            },
+            keyframes: {
+              fadeUp: {
+                '0%': { opacity: '0', transform: 'translateY(24px)' },
+                '100%': { opacity: '1', transform: 'translateY(0)' },
+              },
+              scaleIn: {
+                '0%': { opacity: '0', transform: 'scale(0.95)' },
+                '100%': { opacity: '1', transform: 'scale(1)' },
+              },
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        background: #0c0a09;
+        background-image:
+          radial-gradient(ellipse 80% 60% at 20% 0%, rgba(232,93,48,0.08), transparent),
+          radial-gradient(ellipse 60% 50% at 80% 100%, rgba(168,85,247,0.05), transparent),
+          radial-gradient(ellipse 90% 40% at 50% 50%, rgba(255,255,255,0.015), transparent);
+      }
+
+      .noise::before {
+        content: '';
+        position: fixed;
+        inset: 0;
+        opacity: 0.025;
+        background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+        background-size: 256px 256px;
+        pointer-events: none;
+        z-index: 0;
+      }
+
+      .upload-zone {
+        position: relative;
+        overflow: hidden;
+        transition: all 0.2s ease;
+      }
+      .upload-zone:hover {
+        border-color: rgba(232,93,48,0.4);
+        background: rgba(255,255,255,0.05);
+      }
+      .upload-zone:has(input:focus) {
+        border-color: #e85d30;
+        box-shadow: 0 0 0 1px rgba(232,93,48,0.3);
+      }
+
+      .upload-zone input[type="file"] {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        height: 100%;
+        opacity: 0;
+        cursor: pointer;
+      }
+
+      .btn-swap {
+        position: relative;
+        overflow: hidden;
+        transition: all 0.2s ease;
+      }
+      .btn-swap::before {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: linear-gradient(135deg, rgba(255,255,255,0.12), transparent 60%);
+        opacity: 0;
+        transition: opacity 0.2s ease;
+      }
+      .btn-swap:hover::before {
+        opacity: 1;
+      }
+
+      @keyframes shimmer {
+        0% { transform: translateX(-100%); }
+        100% { transform: translateX(100%); }
+      }
+      .shimmer-line {
+        background: linear-gradient(90deg, transparent, rgba(232,93,48,0.15), transparent);
+        animation: shimmer 2.5s infinite;
+      }
+    </style>
   </head>
-  <body>
-    <main class="page">
-      <section class="hero">
-        <p class="eyebrow">FastAPI + InsightFace</p>
-        <h1>Generate face swaps from the browser.</h1>
-        <p class="intro">
-          Upload one source face and one target image. The app will use the first
-          detected face from the source and replace every detected face in the target.
+  <body class="noise min-h-screen font-body text-stone-300 antialiased">
+    <main class="relative z-10 mx-auto w-full max-w-3xl px-5 pb-20 pt-16 sm:pt-24">
+
+      <!-- Header -->
+      <header class="mb-12 opacity-0 animate-fade-up">
+        <div class="mb-5 flex items-center gap-2.5">
+          <div class="h-2 w-2 rounded-full bg-ember animate-pulse"></div>
+          <span class="font-body text-xs font-medium uppercase tracking-[0.2em] text-ember">FastAPI + InsightFace</span>
+        </div>
+        <h1 class="font-display text-5xl leading-[0.95] text-white sm:text-7xl">
+          Swap any face,<br>
+          <span class="italic text-ember-light">instantly.</span>
+        </h1>
+        <p class="mt-5 max-w-md text-base leading-relaxed text-stone-500">
+          Upload a source face and a target image. Every detected face in the target gets replaced in seconds.
         </p>
-      </section>
+      </header>
 
-      <section class="panel">
-        <form action="/swap" method="post" enctype="multipart/form-data" class="swap-form">
-          <label class="field">
-            <span>Source face image</span>
-            <input type="file" name="source_image" accept="image/*" required />
-          </label>
+      <!-- Upload Form -->
+      <form
+        action="/swap"
+        method="post"
+        enctype="multipart/form-data"
+        class="opacity-0 animate-fade-up-delay"
+      >
+        <div class="rounded-2xl border border-white/[0.06] bg-surface-raised p-5 backdrop-blur-sm sm:p-7">
+          <div class="grid gap-4 sm:grid-cols-2">
 
-          <label class="field">
-            <span>Target image</span>
-            <input type="file" name="target_image" accept="image/*" required />
-          </label>
+            <!-- Source -->
+            <div>
+              <label class="mb-2 block text-xs font-medium uppercase tracking-widest text-stone-500">
+                Source face
+              </label>
+              <div class="upload-zone flex h-36 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.02] text-center">
+                <svg class="mb-2 h-6 w-6 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M15.75 6a3.75 3.75 0 1 1-7.5 0 3.75 3.75 0 0 1 7.5 0ZM4.501 20.118a7.5 7.5 0 0 1 14.998 0" />
+                </svg>
+                <span class="text-sm text-stone-500" id="source-label">Choose image&hellip;</span>
+                <input type="file" name="source_image" accept="image/*" required onchange="updateLabel(this, 'source-label')" />
+              </div>
+            </div>
 
-          <button type="submit">Create image</button>
-        </form>
+            <!-- Target -->
+            <div>
+              <label class="mb-2 block text-xs font-medium uppercase tracking-widest text-stone-500">
+                Target image
+              </label>
+              <div class="upload-zone flex h-36 flex-col items-center justify-center rounded-xl border border-dashed border-white/10 bg-white/[0.02] text-center">
+                <svg class="mb-2 h-6 w-6 text-stone-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.5">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909M3.75 21h16.5A2.25 2.25 0 0 0 22.5 18.75V5.25A2.25 2.25 0 0 0 20.25 3H3.75A2.25 2.25 0 0 0 1.5 5.25v13.5A2.25 2.25 0 0 0 3.75 21Z" />
+                </svg>
+                <span class="text-sm text-stone-500" id="target-label">Choose image&hellip;</span>
+                <input type="file" name="target_image" accept="image/*" required onchange="updateLabel(this, 'target-label')" />
+              </div>
+            </div>
+          </div>
+
+          <!-- Divider -->
+          <div class="relative my-5 h-px bg-white/[0.06]">
+            <div class="shimmer-line absolute inset-0"></div>
+          </div>
+
+          <!-- Submit -->
+          <button
+            type="submit"
+            class="btn-swap inline-flex items-center gap-2 rounded-full bg-ember px-6 py-3 text-sm font-bold uppercase tracking-wider text-white shadow-lg shadow-ember/20 hover:bg-ember-dark hover:-translate-y-0.5 active:translate-y-0"
+          >
+            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+              <path stroke-linecap="round" stroke-linejoin="round" d="M7.5 21 3 16.5m0 0L7.5 12M3 16.5h13.5m0-13.5L21 7.5m0 0L16.5 12M21 7.5H7.5" />
+            </svg>
+            Swap faces
+          </button>
+        </div>
 
         {% if error %}
-        <p class="message error">{{ error }}</p>
+        <div class="mt-4 rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-400">
+          {{ error }}
+        </div>
         {% endif %}
-      </section>
+      </form>
 
       {% if result_url %}
-      <section class="panel result">
-        <div class="result-header">
-          <h2>Result</h2>
-          <a href="{{ result_url }}" download="face-swap-result.jpg">Download image</a>
+      <!-- Result -->
+      <section class="mt-8 opacity-0 animate-fade-up-delay-2">
+        <div class="rounded-2xl border border-white/[0.06] bg-surface-raised p-5 backdrop-blur-sm sm:p-7">
+          <div class="mb-4 flex items-center justify-between gap-4">
+            <h2 class="font-display text-2xl text-white">Result</h2>
+            <a
+              href="{{ result_url }}"
+              download="face-swap-result.jpg"
+              class="inline-flex items-center gap-1.5 rounded-full border border-ember/30 px-4 py-2 text-xs font-bold uppercase tracking-wider text-ember transition hover:bg-ember/10"
+            >
+              <svg class="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5M16.5 12 12 16.5m0 0L7.5 12m4.5 4.5V3" />
+              </svg>
+              Download
+            </a>
+          </div>
+          <img
+            src="{{ result_url }}"
+            alt="Generated face swap result"
+            class="w-full rounded-xl"
+          />
         </div>
-        <img src="{{ result_url }}" alt="Generated face swap result" />
       </section>
       {% endif %}
+
+      <!-- Footer -->
+      <footer class="mt-16 text-center text-xs text-stone-700">
+        Built with FastAPI, InsightFace &amp; InsightSwapper
+      </footer>
     </main>
+
+    <script>
+      function updateLabel(input, labelId) {
+        const label = document.getElementById(labelId);
+        if (input.files.length > 0) {
+          label.textContent = input.files[0].name;
+          label.classList.remove('text-stone-500');
+          label.classList.add('text-ember-light');
+        }
+      }
+    </script>
   </body>
 </html>
