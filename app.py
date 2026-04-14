@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import os
+import urllib.request
 import uuid
 from pathlib import Path
 
 import cv2
 import insightface
 import numpy as np
-from fastapi import FastAPI, File, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -56,6 +57,18 @@ class FaceSwapService:
         return encoded.tobytes()
 
 
+def fetch_image_from_url(url: str) -> bytes:
+    req = urllib.request.Request(  # noqa: S310
+        url,
+        headers={
+            "User-Agent": "Mozilla/5.0 (compatible; FaceSwap/1.0)",
+            "Accept": "image/*,*/*",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
+        return resp.read()
+
+
 def decode_image(image_bytes: bytes) -> np.ndarray:
     image_array = np.frombuffer(image_bytes, dtype=np.uint8)
     image = cv2.imdecode(image_array, cv2.IMREAD_COLOR)
@@ -88,9 +101,34 @@ async def index(request: Request) -> object:
 
 
 @app.post("/swap")
-async def swap(request: Request, source_image: UploadFile = File(...), target_image: UploadFile = File(...)) -> object:
-    source_bytes = await source_image.read()
-    target_bytes = await target_image.read()
+async def swap(
+    request: Request,
+    source_image: UploadFile | None = File(None),
+    target_image: UploadFile | None = File(None),
+    source_url: str | None = Form(None),
+    target_url: str | None = Form(None),
+) -> object:
+    try:
+        if source_url:
+            source_bytes = fetch_image_from_url(source_url)
+        elif source_image:
+            source_bytes = await source_image.read()
+        else:
+            raise ValueError("Provide a source image file or URL.")
+
+        if target_url:
+            target_bytes = fetch_image_from_url(target_url)
+        elif target_image:
+            target_bytes = await target_image.read()
+        else:
+            raise ValueError("Provide a target image file or URL.")
+    except ValueError as exc:
+        return templates.TemplateResponse(
+            request,
+            "index.html",
+            {"request": request, "result_url": None, "error": str(exc)},
+            status_code=400,
+        )
 
     try:
         swapped_bytes = face_swap_service.swap_faces(source_bytes, target_bytes)
