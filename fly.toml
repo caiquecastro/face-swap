@@ -1,5 +1,5 @@
 app = 'face-swap'
-primary_region = 'ord'
+primary_region = 'gru'
 
 [build]
 
@@ -19,7 +19,7 @@ primary_region = 'ord'
     soft_limit = 2
 
 [[vm]]
-  memory = '2gb'
+  memory = '4gb'
   cpu_kind = 'shared'
   cpus = 1
 
