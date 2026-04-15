@@ -1,10 +1,12 @@
+# fly.toml app configuration file generated for face-swap on 2026-04-15T22:27:59Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
 app = 'face-swap'
-primary_region = 'gru'
+primary_region = 'ams'
 
 [build]
-
-[env]
-  FACE_SWAP_CTX_ID = '-1'
 
 [http_service]
   internal_port = 8000
@@ -12,22 +14,10 @@ primary_region = 'gru'
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
-
-  [http_service.concurrency]
-    type = 'requests'
-    hard_limit = 4
-    soft_limit = 2
+  processes = ['app']
 
 [[vm]]
-  memory = '4gb'
+  memory = '1gb'
   cpu_kind = 'shared'
   cpus = 1
-
-# Persistent volume for the model file.
-# On first deploy Fly will create this volume automatically.
-# After first deploy, upload the model once:
-#   fly ssh sftp put models/inswapper_128.onnx /app/models/inswapper_128.onnx
-[[mounts]]
-  source = 'face_swap_models'
-  destination = '/app/models'
-  initial_size = '2'
+  memory_mb = 256
