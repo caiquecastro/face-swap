@@ -1,0 +1,7 @@
+.venv/
+__pycache__/
+*.py[cod]
+.git/
+assets/
+static/generated/
+*.DS_Store
