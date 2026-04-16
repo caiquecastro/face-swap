@@ -30,4 +30,4 @@ primary_region = 'gru'
 [[mounts]]
   source = 'face_swap_models'
   destination = '/app/models'
-  initial_size = '2'
+  initial_size = '1'
