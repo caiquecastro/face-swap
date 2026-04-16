@@ -21,7 +21,7 @@ primary_region = 'gru'
 [[vm]]
   memory = '4gb'
   cpu_kind = 'shared'
-  cpus = 1
+  cpus = 2
 
 # Persistent volume for the model file.
 # On first deploy Fly will create this volume automatically.
