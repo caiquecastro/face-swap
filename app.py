@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import urllib.request
 import uuid
 from pathlib import Path
@@ -24,11 +25,21 @@ GENERATED_DIR = STATIC_DIR / "generated"
 
 class FaceSwapService:
     def __init__(self) -> None:
-        self.face_app = FaceAnalysis(name="buffalo_l", root=str(BASE_DIR))
+        self.face_app = self._load_face_app()
         self.face_app.prepare(ctx_id=self._context_id(), det_size=(640, 640))
         self.swapper = insightface.model_zoo.get_model(
             str(MODEL_PATH), download=False, providers=["CPUExecutionProvider"]
         )
+
+    def _load_face_app(self) -> FaceAnalysis:
+        buffalo_dir = BASE_DIR / "models" / "buffalo_l"
+        for attempt in range(2):
+            try:
+                return FaceAnalysis(name="buffalo_l", root=str(BASE_DIR))
+            except Exception:
+                if attempt == 0 and buffalo_dir.exists():
+                    shutil.rmtree(buffalo_dir)
+        raise RuntimeError("Failed to load buffalo_l model after cleanup retry.")
 
     @staticmethod
     def _context_id() -> int:
