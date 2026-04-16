@@ -24,9 +24,11 @@ GENERATED_DIR = STATIC_DIR / "generated"
 
 class FaceSwapService:
     def __init__(self) -> None:
-        self.face_app = FaceAnalysis(name="buffalo_l")
+        self.face_app = FaceAnalysis(name="buffalo_l", root=str(BASE_DIR))
         self.face_app.prepare(ctx_id=self._context_id(), det_size=(640, 640))
-        self.swapper = insightface.model_zoo.get_model(str(MODEL_PATH), download=False)
+        self.swapper = insightface.model_zoo.get_model(
+            str(MODEL_PATH), download=False, providers=["CPUExecutionProvider"]
+        )
 
     @staticmethod
     def _context_id() -> int:
