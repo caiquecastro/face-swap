@@ -32,10 +32,12 @@ class FaceSwapService:
         )
 
     def _load_face_app(self) -> FaceAnalysis:
-        buffalo_dir = BASE_DIR / "models" / "buffalo_l"
+        # Use /tmp so buffalo_l never competes with inswapper_128 for volume space.
+        root = "/tmp/insightface"
+        buffalo_dir = Path(root) / "models" / "buffalo_l"
         for attempt in range(2):
             try:
-                return FaceAnalysis(name="buffalo_l", root=str(BASE_DIR))
+                return FaceAnalysis(name="buffalo_l", root=root)
             except Exception:
                 if attempt == 0 and buffalo_dir.exists():
                     shutil.rmtree(buffalo_dir)
