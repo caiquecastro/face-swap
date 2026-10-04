@@ -69,6 +69,11 @@ FACE_SWAP_CTX_ID=0 uv run uvicorn app:app --reload
 
 ## Output
 
+The Docker container runs as a non-root user (UID/GID `10001`). Writable mounts,
+including `static/generated/` and the model cache when downloads are needed,
+must grant that user write access. Mounted directories retain their own
+permissions; the Dockerfile's ownership settings do not apply to them.
+
 - Generated files are written to `static/generated/`
 - The browser page shows the generated image and a download link
 

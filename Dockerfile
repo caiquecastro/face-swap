@@ -31,6 +31,13 @@ RUN if [ -n "$MODEL_URL" ]; then \
         curl -fL "$MODEL_URL" -o models/inswapper_128.onnx; \
     fi
 
+# Keep application code read-only for the runtime user; grant access to data directories.
+RUN groupadd --gid 10001 app \
+    && useradd --uid 10001 --gid app --create-home --shell /usr/sbin/nologin app \
+    && chown -R app:app models static/generated
+
 EXPOSE 8000
+
+USER app:app
 
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
