@@ -11,10 +11,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Install uv and use it to install Python dependencies system-wide
-RUN pip install --no-cache-dir uv
-COPY pyproject.toml .
-RUN uv pip install --system --no-cache .
+# Install the locked production dependencies into a virtual environment
+RUN pip install --no-cache-dir uv==0.10.8
+COPY pyproject.toml uv.lock ./
+RUN uv sync --locked --no-dev --no-install-project --no-cache
+ENV PATH="/app/.venv/bin:$PATH"
 
 COPY app.py .
 COPY templates/ templates/
