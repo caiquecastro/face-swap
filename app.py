@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import os
 import shutil
-import urllib.request
 import uuid
 from pathlib import Path
 
@@ -14,6 +13,8 @@ from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from insightface.app import FaceAnalysis
+
+from image_fetch import fetch_image_from_url
 
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -68,18 +69,6 @@ class FaceSwapService:
             raise ValueError("Failed to encode the swapped image.")
 
         return encoded.tobytes()
-
-
-def fetch_image_from_url(url: str) -> bytes:
-    req = urllib.request.Request(  # noqa: S310
-        url,
-        headers={
-            "User-Agent": "Mozilla/5.0 (compatible; FaceSwap/1.0)",
-            "Accept": "image/*,*/*",
-        },
-    )
-    with urllib.request.urlopen(req, timeout=15) as resp:  # noqa: S310
-        return resp.read()
 
 
 def decode_image(image_bytes: bytes) -> np.ndarray:

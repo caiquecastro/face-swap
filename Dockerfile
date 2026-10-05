@@ -17,7 +17,7 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project --no-cache
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY app.py .
+COPY app.py image_fetch.py ./
 COPY templates/ templates/
 COPY static/ static/
 
