@@ -83,6 +83,47 @@ permissions; the Dockerfile's ownership settings do not apply to them.
 - If no face is detected in the target image, the app returns a form error
 - The source image uses the first detected face only
 
+## Resource Limits
+
+Uploads and image URLs share dimension, pixel, and target-face limits. Requests
+are counted while received, and uploads/downloads are read with byte caps even
+when `Content-Length` is missing or misleading. Oversized requests return a 413
+form error; image and face-limit failures return a 400 form error before swapping.
+
+Set these environment variables before starting the app:
+
+| Variable | Default | Unit |
+| --- | ---: | --- |
+| `FACE_SWAP_MAX_REQUEST_BYTES` | 22020096 (21 MiB) | Bytes, including multipart overhead |
+| `FACE_SWAP_MAX_UPLOAD_BYTES` | 10485760 (10 MiB) | Bytes per uploaded image |
+| `FACE_SWAP_MAX_DOWNLOAD_BYTES` | 10485760 (10 MiB) | Bytes per downloaded image |
+| `FACE_SWAP_MAX_IMAGE_DIMENSION` | 4096 | Pixels per side |
+| `FACE_SWAP_MAX_IMAGE_PIXELS` | 16000000 | Total pixels per image |
+| `FACE_SWAP_MAX_TARGET_FACES` | 10 | Faces per target image |
+| `FACE_SWAP_DOWNLOAD_TIMEOUT_SECONDS` | 15 | Total seconds per URL, including redirects |
+| `FACE_SWAP_DOWNLOAD_IDLE_TIMEOUT_SECONDS` | 5 | Seconds without network progress |
+
+Byte, pixel, and face settings must be positive integers; timeout settings must
+be positive finite numbers. Invalid settings fail startup before model loading.
+Image headers are checked before decoding, and OpenCV has matching allocation
+limits. URL downloads request uncompressed HTTP responses and reject unexpected
+content encodings. The first detected source face is used; excessive target
+faces are rejected rather than silently omitted.
+
+For example, allow at most five target faces and ten seconds per download:
+
+```bash
+FACE_SWAP_MAX_TARGET_FACES=5 FACE_SWAP_DOWNLOAD_TIMEOUT_SECONDS=10 uv run uvicorn app:app
+```
+
+Run boundary checks without downloading or running pretrained models:
+
+```bash
+uv run python -m unittest -v
+```
+
+The tests use real image decoders and a loopback HTTP server for timeout checks.
+
 ## Responsible Use
 
 Face swapping can mislead people or violate consent. Use this project only for lawful, ethical, and clearly disclosed purposes.
