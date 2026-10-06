@@ -100,14 +100,17 @@ Set these environment variables before starting the app:
 | `FACE_SWAP_MAX_IMAGE_DIMENSION` | 4096 | Pixels per side |
 | `FACE_SWAP_MAX_IMAGE_PIXELS` | 16000000 | Total pixels per image |
 | `FACE_SWAP_MAX_TARGET_FACES` | 10 | Faces per target image |
-| `FACE_SWAP_DOWNLOAD_TIMEOUT_SECONDS` | 15 | Total seconds per URL, including redirects |
+| `FACE_SWAP_DOWNLOAD_TIMEOUT_SECONDS` | 15 | Total seconds per URL: DNS, connection, and response body |
 | `FACE_SWAP_DOWNLOAD_IDLE_TIMEOUT_SECONDS` | 5 | Seconds without network progress |
 
 Byte, pixel, and face settings must be positive integers; timeout settings must
 be positive finite numbers. Invalid settings fail startup before model loading.
 Image headers are checked before decoding, and OpenCV has matching allocation
 limits. URL downloads request uncompressed HTTP responses and reject unexpected
-content encodings. The first detected source face is used; excessive target
+content encodings. URLs must resolve only to public internet addresses; downloads
+connect to those validated addresses, retain the original Host/TLS identity,
+ignore environmental proxies, and reject redirects. Provide a direct image URL.
+The first detected source face is used; excessive target
 faces are rejected rather than silently omitted.
 
 For example, allow at most five target faces and ten seconds per download:

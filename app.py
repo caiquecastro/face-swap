@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import io
 import math
 import os
@@ -36,7 +35,6 @@ os.environ["OPENCV_IO_MAX_IMAGE_HEIGHT"] = str(MAX_IMAGE_DIMENSION)
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = str(MAX_IMAGE_PIXELS)
 
 import cv2
-import httpx
 import insightface
 import numpy as np
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -47,6 +45,8 @@ from insightface.app import FaceAnalysis
 from insightface.app.common import Face
 from PIL import Image, UnidentifiedImageError
 from starlette.formparsers import MultiPartException
+
+from image_fetch import declared_length, fetch_image_from_url
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
@@ -124,47 +124,6 @@ class FaceSwapService:
                     model.get(image, face)
             faces.append(face)
         return faces
-
-
-def declared_length(headers) -> int | None:
-    value = headers.get("content-length", "")
-    try:
-        return int(value) if value.isascii() and value.isdecimal() else None
-    except ValueError:
-        return None
-
-
-async def fetch_image_from_url(url: str) -> bytes:
-    try:
-        async with asyncio.timeout(DOWNLOAD_TIMEOUT):
-            async with httpx.AsyncClient(timeout=DOWNLOAD_IDLE_TIMEOUT) as client:
-                # Follow manually: HTTPX otherwise buffers redirect bodies.
-                for redirect in range(21):
-                    async with client.stream("GET", url, headers={
-                        "User-Agent": "Mozilla/5.0 (compatible; FaceSwap/1.0)",
-                        "Accept": "image/*,*/*", "Accept-Encoding": "identity",
-                    }) as response:
-                        if response.is_redirect and "location" in response.headers:
-                            if redirect == 20:
-                                raise ValueError("Image URL redirected too many times.")
-                            url = str(response.url.join(response.headers["location"]))
-                            continue
-                        response.raise_for_status()
-                        if response.headers.get("content-encoding", "identity").lower() != "identity":
-                            raise ValueError("Image URL returned an unsupported content encoding.")
-                        size = declared_length(response.headers)
-                        if size is not None and size > MAX_DOWNLOAD_BYTES:
-                            raise ValueError(f"Downloaded image exceeds the limit of {MAX_DOWNLOAD_BYTES} bytes.")
-                        data = bytearray()
-                        async for chunk in response.aiter_raw():
-                            if len(data) + len(chunk) > MAX_DOWNLOAD_BYTES:
-                                raise ValueError(f"Downloaded image exceeds the limit of {MAX_DOWNLOAD_BYTES} bytes.")
-                            data.extend(chunk)
-                        return bytes(data)
-    except (TimeoutError, httpx.TimeoutException) as exc:
-        raise ValueError("Image URL download timed out.") from exc
-    except (httpx.HTTPError, httpx.InvalidURL) as exc:
-        raise ValueError("Could not download image from URL.") from exc
 
 
 async def read_upload(upload: UploadFile) -> bytes:
@@ -307,14 +266,20 @@ async def swap(
 ) -> object:
     try:
         if source_url:
-            source_bytes = await fetch_image_from_url(source_url)
+            source_bytes = await fetch_image_from_url(
+                source_url, max_bytes=MAX_DOWNLOAD_BYTES,
+                total_timeout=DOWNLOAD_TIMEOUT, idle_timeout=DOWNLOAD_IDLE_TIMEOUT,
+            )
         elif source_image:
             source_bytes = await read_upload(source_image)
         else:
             raise ValueError("Provide a source image file or URL.")
 
         if target_url:
-            target_bytes = await fetch_image_from_url(target_url)
+            target_bytes = await fetch_image_from_url(
+                target_url, max_bytes=MAX_DOWNLOAD_BYTES,
+                total_timeout=DOWNLOAD_TIMEOUT, idle_timeout=DOWNLOAD_IDLE_TIMEOUT,
+            )
         elif target_image:
             target_bytes = await read_upload(target_image)
         else:

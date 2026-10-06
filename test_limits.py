@@ -1,9 +1,10 @@
 """Resource boundaries without model downloads or inference: python -m unittest."""
 import asyncio
-import io
 import importlib.metadata
 import importlib.util
+import io
 import os
+import socket
 import subprocess
 import sys
 import types
@@ -13,6 +14,8 @@ from unittest.mock import MagicMock, patch
 import httpx
 import numpy as np
 from PIL import Image
+
+import image_fetch
 
 # Keep the real web stack and decoders; replace only pretrained models.
 insightface = types.ModuleType("insightface")
@@ -60,11 +63,17 @@ class LimitsTests(unittest.IsolatedAsyncioTestCase):
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app.app), base_url="http://test") as client:
             return await client.post("/swap", content=content, headers=headers)
 
+    async def fetch(self, url):
+        return await app.fetch_image_from_url(
+            url, max_bytes=app.MAX_DOWNLOAD_BYTES,
+            total_timeout=app.DOWNLOAD_TIMEOUT, idle_timeout=app.DOWNLOAD_IDLE_TIMEOUT,
+        )
+
     async def download(self, stream, headers=None, status=200):
         original = httpx.AsyncClient
         transport = httpx.MockTransport(lambda request: httpx.Response(status, headers=headers, stream=stream))
-        with patch.object(app.httpx, "AsyncClient", side_effect=lambda **kwargs: original(transport=transport, **kwargs)):
-            return await app.fetch_image_from_url("https://example.test/image")
+        with patch.object(image_fetch.socket, "getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 443))]), patch.object(image_fetch.httpx, "AsyncClient", side_effect=lambda **kwargs: original(transport=transport, **kwargs)):
+            return await self.fetch("https://example.test/image")
 
     async def test_download_bytes_and_headers(self):
         with patch.object(app, "MAX_DOWNLOAD_BYTES", 8):
@@ -88,37 +97,32 @@ class LimitsTests(unittest.IsolatedAsyncioTestCase):
                 await self.download(stream, {"Content-Encoding": "gzip"})
             self.assertEqual(stream.read, 0)
             self.assertTrue(stream.closed)
+            stream = Stream([b"error body must not be read"])
+            with self.assertRaisesRegex(ValueError, "successful response"):
+                await self.download(stream, status=404)
+            self.assertEqual(stream.read, 0)
+            self.assertTrue(stream.closed)
 
     async def test_redirect_body_is_not_buffered(self):
-        streams = [Stream([b"oversized redirect body"]), Stream([b"ok"])]
-        seen = []
-        def handler(request):
-            seen.append(request)
-            if len(seen) == 1:
-                return httpx.Response(302, headers={"Location": "/final"}, stream=streams[0])
-            return httpx.Response(200, stream=streams[1])
-        original = httpx.AsyncClient
-        with patch.object(app.httpx, "AsyncClient", side_effect=lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)):
-            self.assertEqual(await app.fetch_image_from_url("https://example.test/start"), b"ok")
-        self.assertEqual(streams[0].read, 0)
-        self.assertTrue(all(stream.closed for stream in streams))
-        self.assertTrue(all(request.headers["accept-encoding"] == "identity" for request in seen))
-        self.assertEqual(str(seen[1].url), "https://example.test/final")
+        stream = Stream([b"oversized redirect body"])
+        with self.assertRaisesRegex(ValueError, "direct image URL"):
+            await self.download(stream, {"Location": "http://127.0.0.1/secret"}, status=302)
+        self.assertEqual(stream.read, 0)
+        self.assertTrue(stream.closed)
 
-    async def test_total_deadline_stops_trickle_and_redirects(self):
+    async def test_total_deadline_stops_trickle_and_dns(self):
         with patch.object(app, "DOWNLOAD_TIMEOUT", 0.05):
             stream = Stream([b"a"] * 100, delay=0.01)
             with self.assertRaisesRegex(ValueError, "timed out"):
                 await self.download(stream)
             self.assertLess(stream.read, 10)
             self.assertTrue(stream.closed)
-            original = httpx.AsyncClient
-            async def handler(request):
-                await asyncio.sleep(0.02)
-                return httpx.Response(302, headers={"Location": "/again"}, stream=Stream([]))
-            with patch.object(app.httpx, "AsyncClient", side_effect=lambda **kwargs: original(transport=httpx.MockTransport(handler), **kwargs)):
+            async def slow_dns(*args, **kwargs):
+                await asyncio.sleep(1)
+            with patch.object(asyncio.get_running_loop(), "getaddrinfo", side_effect=slow_dns), patch.object(image_fetch.httpx, "AsyncClient") as client:
                 with self.assertRaisesRegex(ValueError, "timed out"):
-                    await app.fetch_image_from_url("https://example.test/start")
+                    await self.fetch("https://example.test/start")
+                client.assert_not_called()
 
     async def test_idle_timeout_with_real_socket(self):
         async def stalled(reader, writer):
@@ -133,9 +137,9 @@ class LimitsTests(unittest.IsolatedAsyncioTestCase):
         server = await asyncio.start_server(stalled, "127.0.0.1", 0)
         async with server:
             port = server.sockets[0].getsockname()[1]
-            with patch.object(app, "DOWNLOAD_IDLE_TIMEOUT", 0.03), patch.object(app, "DOWNLOAD_TIMEOUT", 1):
+            with patch.object(app, "DOWNLOAD_IDLE_TIMEOUT", 0.03), patch.object(app, "DOWNLOAD_TIMEOUT", 1), patch.object(image_fetch, "_public_address", return_value=True):
                 with self.assertRaisesRegex(ValueError, "timed out"):
-                    await app.fetch_image_from_url(f"http://127.0.0.1:{port}/image")
+                    await self.fetch(f"http://127.0.0.1:{port}/image")
 
     async def test_upload_read_boundary(self):
         with patch.object(app, "MAX_UPLOAD_BYTES", 8):
@@ -200,10 +204,26 @@ class LimitsTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("Uploaded image exceeds", response.text)
                 swap.assert_not_called()
             stream = Stream([payload])
-            with patch.object(app, "MAX_DOWNLOAD_BYTES", len(payload) - 1), patch.object(app.httpx, "AsyncClient", side_effect=lambda **kwargs: original(transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=stream)), **kwargs)), patch.object(app.face_swap_service, "swap_faces") as swap:
+            with patch.object(image_fetch.socket, "getaddrinfo", return_value=[(socket.AF_INET, socket.SOCK_STREAM, 0, "", ("8.8.8.8", 443))]), patch.object(app, "MAX_DOWNLOAD_BYTES", len(payload) - 1), patch.object(image_fetch.httpx, "AsyncClient", side_effect=lambda **kwargs: original(transport=httpx.MockTransport(lambda request: httpx.Response(200, stream=stream)), **kwargs)), patch.object(app.face_swap_service, "swap_faces") as swap:
                 response = await client.post("/swap", data={"source_url": "https://example.test/a", "target_url": "https://example.test/b"})
                 self.assertEqual(response.status_code, 400)
                 self.assertIn("Downloaded image exceeds", response.text)
+                swap.assert_not_called()
+
+    async def test_swap_keeps_ssrf_checks_with_download_budget(self):
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app.app), base_url="http://test") as client:
+            with patch.object(app, "MAX_DOWNLOAD_BYTES", 1), patch.object(app.face_swap_service, "swap_faces") as swap:
+                with patch.object(image_fetch.socket, "getaddrinfo") as resolver:
+                    response = await client.post("/swap", data={"source_url": "http://127.0.0.1/secret", "target_url": "http://example.test/image"})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn("public internet address", response.text)
+                    resolver.assert_not_called()
+                answers = [(socket.AF_INET, socket.SOCK_STREAM, 0, "", (address, 80)) for address in ("8.8.8.8", "10.0.0.1")]
+                with patch.object(image_fetch.socket, "getaddrinfo", return_value=answers), patch.object(image_fetch.httpx, "AsyncClient") as outbound:
+                    response = await client.post("/swap", data={"source_url": "http://example.test/image", "target_url": "http://example.test/image"})
+                    self.assertEqual(response.status_code, 400)
+                    self.assertIn("public internet address", response.text)
+                    outbound.assert_not_called()
                 swap.assert_not_called()
 
     def test_image_boundaries_before_decode(self):
