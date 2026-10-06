@@ -1,11 +1,12 @@
 """Fetch image URLs without allowing access to local or private networks."""
 
-import http.client
+import asyncio
 import ipaddress
 import re
 import socket
-import ssl
 from urllib.parse import urlsplit
+
+import httpx
 
 
 def _public_address(address: str) -> bool:
@@ -20,7 +21,18 @@ def _public_address(address: str) -> bool:
     )
 
 
-def fetch_image_from_url(url: str) -> bytes:
+def declared_length(headers) -> int | None:
+    value = headers.get("content-length", "")
+    try:
+        return int(value) if value.isascii() and value.isdecimal() else None
+    except ValueError:
+        return None
+
+
+async def fetch_image_from_url(
+    url: str, *, max_bytes: int = 10 * 1024 * 1024,
+    total_timeout: float = 15, idle_timeout: float = 5,
+) -> bytes:
     if any(ord(char) <= 32 or ord(char) == 127 for char in url):
         raise ValueError("Image URL must not contain whitespace or control characters.")
     try:
@@ -47,54 +59,59 @@ def fetch_image_from_url(url: str) -> bytes:
     if literal is not None and not _public_address(str(literal)):
         raise ValueError("Image URL must point to a public internet address.")
 
-    connection = http.client.HTTPConnection(host, port, timeout=15)
-    connection.default_port = 443 if parsed.scheme == "https" else 80
-    # Never let http.client reconnect by resolving the hostname again.
-    connection.auto_open = False
     try:
-        addresses = socket.getaddrinfo(host, port, type=socket.SOCK_STREAM)
-        if not addresses or any(
-            family not in (socket.AF_INET, socket.AF_INET6)
-            or not _public_address(sockaddr[0])
-            for family, _, _, _, sockaddr in addresses
-        ):
-            raise ValueError("Image URL must point to a public internet address.")
-
-        # All DNS answers must pass before any connection is attempted.
-        for family, kind, protocol, _, sockaddr in addresses:
-            sock = socket.socket(family, kind, protocol)
-            try:
-                sock.settimeout(15)
-                sock.connect(sockaddr)
-            except OSError:
-                sock.close()
-                continue
-            connection.sock = sock
-            break
-        if connection.sock is None:
-            raise OSError("No reachable public address")
-        if parsed.scheme == "https":
-            connection.sock = ssl.create_default_context().wrap_socket(
-                connection.sock, server_hostname=host
+        async with asyncio.timeout(total_timeout):
+            addresses = await asyncio.get_running_loop().getaddrinfo(
+                host, port, type=socket.SOCK_STREAM
             )
-        path = parsed.path or "/"
-        if parsed.query:
-            path += "?" + parsed.query
-        connection.request(
-            "GET",
-            path,
-            headers={
-                "User-Agent": "Mozilla/5.0 (compatible; FaceSwap/1.0)",
-                "Accept": "image/*,*/*",
-            },
-        )
-        with connection.getresponse() as response:
-            if 300 <= response.status < 400:
-                raise ValueError("Image URL redirects are not allowed. Provide a direct image URL.")
-            if not 200 <= response.status < 300:
-                raise ValueError("Image URL did not return a successful response.")
-            return response.read()
-    except (OSError, http.client.HTTPException, UnicodeError) as exc:
+            if not addresses or any(
+                family not in (socket.AF_INET, socket.AF_INET6)
+                or not _public_address(sockaddr[0])
+                for family, _, _, _, sockaddr in addresses
+            ):
+                raise ValueError("Image URL must point to a public internet address.")
+
+            authority = f"[{host}]" if ":" in host else host
+            if parsed.port is not None:
+                authority += f":{port}"
+            # Never resolve the hostname again, or consult environmental proxies.
+            async with httpx.AsyncClient(
+                timeout=idle_timeout, trust_env=False, follow_redirects=False,
+            ) as client:
+                for _, _, _, _, sockaddr in addresses:
+                    destination = httpx.URL(url).copy_with(host=sockaddr[0], port=port)
+                    try:
+                        async with client.stream(
+                            "GET", destination,
+                            headers={
+                                "Host": authority,
+                                "User-Agent": "Mozilla/5.0 (compatible; FaceSwap/1.0)",
+                                "Accept": "image/*,*/*", "Accept-Encoding": "identity",
+                            },
+                            # httpcore connects to the numeric origin, but TLS must
+                            # send SNI and verify the certificate for the original host.
+                            extensions={"sni_hostname": host},
+                        ) as response:
+                            if 300 <= response.status_code < 400:
+                                raise ValueError("Image URL redirects are not allowed. Provide a direct image URL.")
+                            if not 200 <= response.status_code < 300:
+                                raise ValueError("Image URL did not return a successful response.")
+                            if response.headers.get("content-encoding", "identity").lower() != "identity":
+                                raise ValueError("Image URL returned an unsupported content encoding.")
+                            size = declared_length(response.headers)
+                            if size is not None and size > max_bytes:
+                                raise ValueError(f"Downloaded image exceeds the limit of {max_bytes} bytes.")
+                            data = bytearray()
+                            async for chunk in response.aiter_raw():
+                                if len(data) + len(chunk) > max_bytes:
+                                    raise ValueError(f"Downloaded image exceeds the limit of {max_bytes} bytes.")
+                                data.extend(chunk)
+                            return bytes(data)
+                    except (httpx.ConnectError, httpx.ConnectTimeout):
+                        # Only retry addresses from the already validated DNS result.
+                        continue
+                raise ValueError("Could not fetch the image URL. Check the URL and try again.")
+    except (TimeoutError, httpx.TimeoutException) as exc:
+        raise ValueError("Image URL download timed out.") from exc
+    except (OSError, httpx.HTTPError, httpx.InvalidURL, UnicodeError) as exc:
         raise ValueError("Could not fetch the image URL. Check the URL and try again.") from exc
-    finally:
-        connection.close()
