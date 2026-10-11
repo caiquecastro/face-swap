@@ -5,6 +5,7 @@ primary_region = 'gru'
 
 [env]
   FACE_SWAP_CTX_ID = '-1'
+  FACE_SWAP_MODEL_DIR = '/app/models'
 
 [http_service]
   internal_port = 8000
@@ -23,10 +24,7 @@ primary_region = 'gru'
   cpu_kind = 'shared'
   cpus = 4
 
-# Persistent volume for the model file.
-# On first deploy Fly will create this volume automatically.
-# After first deploy, upload the model once:
-#   fly ssh sftp put models/inswapper_128.onnx /app/models/inswapper_128.onnx
+# Provision each attached volume before starting the web Machine (see README).
 [[mounts]]
   source = 'face_swap_models'
   destination = '/app/models'

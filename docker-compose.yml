@@ -4,9 +4,10 @@ services:
     ports:
       - "8000:8000"
     volumes:
-      # Mount the local model file so it doesn't need to be baked into the image
+      # Provision ./models first; runtime only reads the verified bundle and swapper.
       - ./models:/app/models:ro
       # Persist generated images across restarts
       - ./static/generated:/app/static/generated
     environment:
+      FACE_SWAP_MODEL_DIR: /app/models
       FACE_SWAP_CTX_ID: -1   # -1 = CPU; set to 0 for GPU

@@ -28,7 +28,8 @@ FastAPI web app for creating face-swapped images with `insightface` and the `ins
 - [`app.py`](/Users/caique.silva/Code/Personal/face-swap/app.py) FastAPI app and face swap service
 - [`templates/index.html`](/Users/caique.silva/Code/Personal/face-swap/templates/index.html) upload form and result page
 - [`pyproject.toml`](/Users/caique.silva/Code/Personal/face-swap/pyproject.toml) Python dependencies
-- `models/inswapper_128.onnx` pretrained swap model (not tracked in git)
+- [`model_store.py`](model_store.py) pinned model manifest and explicit setup command
+- `models/` verified analysis bundle and swapper (not tracked in git)
 
 ## Setup
 
@@ -38,12 +39,63 @@ Install dependencies:
 uv sync
 ```
 
-Download the `inswapper_128.onnx` model (see [InsightFace in_swapper example](https://github.com/deepinsight/insightface/tree/master/examples/in_swapper) for reference) and place it in the `models/` directory:
+Provision and verify the models before starting the app:
+
+```bash
+uv run python model_store.py setup
+uv run python model_store.py verify
+```
+
+`FACE_SWAP_MODEL_DIR` changes the model directory for both setup and runtime;
+the default is `models/` beside `app.py`. The expected layout is:
 
 ```
 models/
+  buffalo_l/
+    1k3d68.onnx
+    2d106det.onnx
+    det_10g.onnx
+    genderage.onnx
+    w600k_r50.onnx
   inswapper_128.onnx
 ```
+
+The trusted manifest in `model_store.py` pins SHA-256 and byte size for every
+file. Its sources are the [official InsightFace model-zoo release](https://github.com/deepinsight/insightface/releases/tag/model-zoo):
+`buffalo_l.zip` (SHA-256 `80ffe37d8a5940d59a7384c201a2a38d4741f2f3c51eef46ebb28218a7b0ca2f`)
+and `inswapper_128.onnx` (SHA-256 `e4a3f08c753cb72d04e10aa0f7dbe3deebbf39567d4ead6dce08e98aa49e16af`).
+The five analysis file hashes were derived from the verified archive. Setup
+stages downloads in the target directory, validates them before publication,
+and leaves already valid files untouched. A failed or interrupted setup can be
+rerun. Runtime only reads and verifies these files; it never downloads or
+deletes them. A missing or corrupt file stops startup with its path and the
+setup command.
+
+To use Docker Compose, run setup on the host first, then `docker compose up --build`.
+Compose mounts the complete `models/` directory read-only. Ensure the host
+`static/generated/` directory is writable by container UID/GID `10001`.
+
+For Fly, create and provision a volume in the app's region before deploying
+the web Machine. Use the image built from this repository and repeat setup for
+each volume that will serve a Machine:
+
+```bash
+fly volumes create face_swap_models --size 2 --region gru -a face-swap
+fly volumes list -a face-swap
+fly machine run . --shell --user root --volume <volume-id>:/app/models --region gru -a face-swap
+# In that temporary Machine's shell:
+chown 10001:10001 /app/models
+su -s /bin/sh app -c 'python /app/model_store.py setup'
+su -s /bin/sh app -c 'python /app/model_store.py verify'
+exit
+fly deploy --ha=false -a face-swap
+```
+
+The temporary setup Machine is removed when its shell exits; the volume stays
+for the web Machine. Fly's release commands do not mount app volumes, so they
+cannot provision these models. The volume needs read/traverse access for UID
+`10001`; only `static/generated/` needs runtime write access. For more web
+Machines, create and provision another volume for each one.
 
 ## Run
 
@@ -69,10 +121,9 @@ FACE_SWAP_CTX_ID=0 uv run uvicorn app:app --reload
 
 ## Output
 
-The Docker container runs as a non-root user (UID/GID `10001`). Writable mounts,
-including `static/generated/` and the model cache when downloads are needed,
-must grant that user write access. Mounted directories retain their own
-permissions; the Dockerfile's ownership settings do not apply to them.
+The Docker container runs as a non-root user (UID/GID `10001`). Mounted
+directories retain their own permissions; the Dockerfile's ownership settings
+do not apply to them.
 
 - Generated files are written to `static/generated/`
 - The browser page shows the generated image and a download link
