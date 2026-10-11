@@ -7,6 +7,7 @@ import os
 import socket
 import subprocess
 import sys
+import tempfile
 import types
 import unittest
 from unittest.mock import MagicMock, patch
@@ -356,6 +357,27 @@ for width, height in ((9, 1), (1, 9), (8, 8)):
         raise AssertionError('native allocation guard failed')
 '''
         result = subprocess.run([sys.executable, "-c", code], env={**environment, "FACE_SWAP_MAX_IMAGE_DIMENSION": "8", "FACE_SWAP_MAX_IMAGE_PIXELS": "63"}, capture_output=True, text=True)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_real_insightface_import_does_not_check_for_updates(self):
+        code = '''import os, urllib.request
+attempts = []
+def blocked(self, *args, **kwargs):
+    attempts.append(args)
+    raise OSError('network blocked')
+urllib.request.OpenerDirector.open = blocked
+try:
+    import app
+except RuntimeError as exc:
+    assert 'model_store.py setup' in str(exc), exc
+else:
+    raise AssertionError('empty model directory should fail startup')
+assert os.environ['NO_ALBUMENTATIONS_UPDATE'] == '1'
+assert not attempts, attempts
+'''
+        with tempfile.TemporaryDirectory() as models:
+            environment = {**os.environ, "FACE_SWAP_MODEL_DIR": models, "NO_ALBUMENTATIONS_UPDATE": "0"}
+            result = subprocess.run([sys.executable, "-c", code], env=environment, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
 
 

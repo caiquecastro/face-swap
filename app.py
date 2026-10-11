@@ -32,6 +32,8 @@ DOWNLOAD_IDLE_TIMEOUT = positive_setting("FACE_SWAP_DOWNLOAD_IDLE_TIMEOUT_SECOND
 os.environ["OPENCV_IO_MAX_IMAGE_WIDTH"] = str(MAX_IMAGE_DIMENSION)
 os.environ["OPENCV_IO_MAX_IMAGE_HEIGHT"] = str(MAX_IMAGE_DIMENSION)
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = str(MAX_IMAGE_PIXELS)
+# Albumentations checks PyPI while InsightFace imports unless this is set first.
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 
 import cv2
 import insightface
