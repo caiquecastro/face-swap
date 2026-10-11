@@ -2,5 +2,5 @@
 __pycache__
 /static/generated/*.jpg
 /assets
-/models/*.onnx
+/models/
 .DS_Store

@@ -6,7 +6,6 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libgl1 \
     libglib2.0-0 \
-    curl \
     g++ \
     python3-dev \
     && rm -rf /var/lib/apt/lists/*
@@ -17,19 +16,11 @@ COPY pyproject.toml uv.lock ./
 RUN uv sync --locked --no-dev --no-install-project --no-cache
 ENV PATH="/app/.venv/bin:$PATH"
 
-COPY app.py image_fetch.py ./
+COPY app.py image_fetch.py model_store.py ./
 COPY templates/ templates/
 COPY static/ static/
 
 RUN mkdir -p models static/generated
-
-# Optionally download the model at build time.
-# Usage: docker build --build-arg MODEL_URL=https://... .
-ARG MODEL_URL
-RUN if [ -n "$MODEL_URL" ]; then \
-        echo "Downloading model from $MODEL_URL" && \
-        curl -fL "$MODEL_URL" -o models/inswapper_128.onnx; \
-    fi
 
 # Keep application code read-only for the runtime user; grant access to data directories.
 RUN groupadd --gid 10001 app \

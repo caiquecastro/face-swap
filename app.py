@@ -3,7 +3,6 @@ from __future__ import annotations
 import io
 import math
 import os
-import shutil
 import uuid
 from pathlib import Path
 
@@ -33,6 +32,8 @@ DOWNLOAD_IDLE_TIMEOUT = positive_setting("FACE_SWAP_DOWNLOAD_IDLE_TIMEOUT_SECOND
 os.environ["OPENCV_IO_MAX_IMAGE_WIDTH"] = str(MAX_IMAGE_DIMENSION)
 os.environ["OPENCV_IO_MAX_IMAGE_HEIGHT"] = str(MAX_IMAGE_DIMENSION)
 os.environ["OPENCV_IO_MAX_IMAGE_PIXELS"] = str(MAX_IMAGE_PIXELS)
+# Albumentations checks PyPI while InsightFace imports unless this is set first.
+os.environ["NO_ALBUMENTATIONS_UPDATE"] = "1"
 
 import cv2
 import insightface
@@ -41,18 +42,17 @@ from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
-from insightface.app import FaceAnalysis
 from insightface.app.common import Face
 from PIL import Image, UnidentifiedImageError
 from starlette.formparsers import MultiPartException
 
 from image_fetch import declared_length, fetch_image_from_url
+from model_store import MODELS, model_dir, verify
 
 Image.MAX_IMAGE_PIXELS = MAX_IMAGE_PIXELS
 
 
 BASE_DIR = Path(__file__).resolve().parent
-MODEL_PATH = BASE_DIR / "models" / "inswapper_128.onnx"
 STATIC_DIR = BASE_DIR / "static"
 TEMPLATES_DIR = BASE_DIR / "templates"
 GENERATED_DIR = STATIC_DIR / "generated"
@@ -60,21 +60,36 @@ GENERATED_DIR = STATIC_DIR / "generated"
 
 class FaceSwapService:
     def __init__(self) -> None:
-        self.face_app = self._load_face_app()
-        self.face_app.prepare(ctx_id=self._context_id(), det_size=(640, 640))
-        self.swapper = insightface.model_zoo.get_model(
-            str(MODEL_PATH), download=False, providers=["CPUExecutionProvider"]
-        )
-
-    def _load_face_app(self) -> FaceAnalysis:
-        buffalo_dir = BASE_DIR / "models" / "buffalo_l"
-        for attempt in range(2):
-            try:
-                return FaceAnalysis(name="buffalo_l", root=str(BASE_DIR))
-            except Exception:
-                if attempt == 0 and buffalo_dir.exists():
-                    shutil.rmtree(buffalo_dir)
-        raise RuntimeError("Failed to load buffalo_l model after cleanup retry.")
+        root = model_dir()
+        try:
+            verify(root)
+            self.models = {}
+            for name in sorted(MODELS):
+                if not name.startswith("buffalo_l/"):
+                    continue
+                model = insightface.model_zoo.get_model(str(root / name), download=False)
+                if model is None:
+                    raise ValueError(f"Unrecognized analysis model: {name}")
+                if model.taskname not in self.models:
+                    self.models[model.taskname] = model
+            if "detection" not in self.models or "recognition" not in self.models:
+                raise ValueError("Analysis bundle needs detection and recognition models")
+            self.det_model = self.models["detection"]
+            for task, model in self.models.items():
+                if task == "detection":
+                    model.prepare(self._context_id(), input_size=(640, 640), det_thresh=0.5)
+                else:
+                    model.prepare(self._context_id())
+            self.swapper = insightface.model_zoo.get_model(
+                str(root / "inswapper_128.onnx"), download=False, providers=["CPUExecutionProvider"]
+            )
+            if self.swapper is None:
+                raise ValueError("Unrecognized swapper model")
+        except Exception as exc:
+            raise RuntimeError(
+                f"Cannot load models from {root}. Run `uv run python model_store.py setup` "
+                f"to provision verified models. Original error: {exc}"
+            ) from exc
 
     @staticmethod
     def _context_id() -> int:
@@ -85,7 +100,7 @@ class FaceSwapService:
         target_image = decode_image(target_bytes)
 
         # Count detections before running any per-face models or swaps.
-        target_boxes, target_landmarks = self.face_app.det_model.detect(
+        target_boxes, target_landmarks = self.det_model.detect(
             target_image, max_num=MAX_TARGET_FACES + 1
         )
         if len(target_boxes) > MAX_TARGET_FACES:
@@ -94,7 +109,7 @@ class FaceSwapService:
             raise ValueError("No face detected in the target image.")
 
         # max_num=1 ranks by size/position; detect all to preserve the first face.
-        source_boxes, source_landmarks = self.face_app.det_model.detect(source_image, max_num=0)
+        source_boxes, source_landmarks = self.det_model.detect(source_image, max_num=0)
         if len(source_boxes) == 0:
             raise ValueError("No face detected in the source image.")
         source_faces = self._analyze_faces(source_image, source_boxes[:1], source_landmarks)
@@ -119,7 +134,7 @@ class FaceSwapService:
                 bbox=box[:4], det_score=box[4],
                 kps=landmarks[index] if landmarks is not None else None,
             )
-            for task, model in self.face_app.models.items():
+            for task, model in self.models.items():
                 if task != "detection":
                     model.get(image, face)
             faces.append(face)
