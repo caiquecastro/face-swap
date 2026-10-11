@@ -94,6 +94,43 @@ class ModelStoreTests(unittest.TestCase):
                 model_store.setup(self.root)
         self.assertFalse((self.root / "buffalo_l").exists())
 
+    def test_same_size_wrong_swapper_download_preserves_valid_analysis(self):
+        analysis = self.root / "buffalo_l"
+        analysis.mkdir()
+        for name, data in self.members.items():
+            (analysis / name).write_bytes(data)
+        good = analysis / "det_10g.onnx"
+        old_inode = good.stat().st_ino
+
+        class Response(io.BytesIO):
+            def geturl(self):
+                return model_store.SOURCE + "inswapper_128.onnx"
+
+        wrong = b"SWAPPER"
+        self.assertEqual(len(wrong), len(self.swapper))
+        with patch.object(model_store.urllib.request, "urlopen", return_value=Response(wrong)) as request:
+            with self.assertRaisesRegex(ValueError, "checksum or size mismatch"):
+                model_store.setup(self.root)
+            request.assert_called_once()
+        self.assertEqual(good.read_bytes(), self.members["det_10g.onnx"])
+        self.assertEqual(good.stat().st_ino, old_inode)
+        self.assertFalse((self.root / "inswapper_128.onnx").exists())
+
+    def test_same_size_corrupt_installed_file_fails_runtime_verify(self):
+        with patch.object(model_store, "download", side_effect=self.downloader):
+            model_store.setup(self.root)
+        good = self.root / "buffalo_l/det_10g.onnx"
+        old_inode = good.stat().st_ino
+        swapper = self.root / "inswapper_128.onnx"
+        wrong = b"SWAPPER"
+        self.assertEqual(len(wrong), swapper.stat().st_size)
+        swapper.write_bytes(wrong)
+        with self.assertRaisesRegex(RuntimeError, "inswapper_128.onnx"):
+            model_store.verify(self.root)
+        self.assertEqual(swapper.read_bytes(), wrong)
+        self.assertEqual(good.read_bytes(), self.members["det_10g.onnx"])
+        self.assertEqual(good.stat().st_ino, old_inode)
+
     def test_archive_contents_and_member_checksum_are_checked_before_publish(self):
         for members in ({"../escape.onnx": b"x"}, {"det_10g.onnx": b"wrong", "w600k_r50.onnx": b"recognition"}):
             self.members = members
